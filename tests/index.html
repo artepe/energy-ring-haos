@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  @font-face { font-family: Roboto; font-weight: 400; src: url(node_modules/@fontsource/roboto/files/roboto-latin-400-normal.woff2) format('woff2'); }
+  @font-face { font-family: Roboto; font-weight: 500; src: url(node_modules/@fontsource/roboto/files/roboto-latin-500-normal.woff2) format('woff2'); }
+  @font-face { font-family: Roboto; font-weight: 600; src: url(node_modules/@fontsource/roboto/files/roboto-latin-600-normal.woff2) format('woff2'); }
+  @font-face { font-family: Roboto; font-weight: 700; src: url(node_modules/@fontsource/roboto/files/roboto-latin-700-normal.woff2) format('woff2'); }
+  :root {
+    --primary-text-color: #212121; --secondary-text-color: #727272; --divider-color: rgba(0,0,0,.12);
+    --card-background-color: #ffffff; --primary-background-color: #fafafa; --error-color: #db4437;
+    --primary-color: #03a9f4; --orange-color: #ff9800;
+  }
+  :root.dark {
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b; --divider-color: rgba(225,225,225,.12);
+    --card-background-color: #1c1c1c; --primary-background-color: #111111;
+  }
+  body { margin: 0; padding: 16px; background: var(--primary-background-color); font-family: Roboto, Noto, sans-serif;
+    -webkit-font-smoothing: antialiased; color: var(--primary-text-color); }
+  #grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .slot { flex: none; }
+  .cap { font: 12px/1.4 monospace; color: var(--secondary-text-color); margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+<script>
+  // Minimal stand-in for HA's <ha-card>
+  customElements.define('ha-card', class extends HTMLElement {
+    static get observedAttributes() { return ['header']; }
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' }).innerHTML = `<style>
+        :host { display:block; background: var(--ha-card-background, var(--card-background-color, #fff));
+          border-radius: var(--ha-card-border-radius, 12px); border: 1px solid var(--ha-card-border-color, var(--divider-color, #e0e0e0));
+          color: var(--primary-text-color); position: relative; }
+        .card-header { font-size: 24px; line-height: 48px; padding: 12px 16px 16px; letter-spacing: -0.012em; margin: 0; font-weight: 400; display:block; }
+        .card-header:empty { display: none; }
+      </style><h1 class="card-header"></h1><slot></slot>`;
+    }
+    set header(v) { this._h = v; this.shadowRoot.querySelector('.card-header').textContent = v || ''; }
+    get header() { return this._h; }
+    attributeChangedCallback(n, o, v) { this.header = v; }
+  });
+
+  window.wsCalls = [];
+  window.events = [];
+  window.st = (id, state, unit, name, extra = {}) => ({ entity_id: id, state: String(state), attributes: { unit_of_measurement: unit, friendly_name: name, ...extra } });
+  window.makeHass = ({ states = {}, dark = false, lang = 'fi', callWS } = {}) => ({
+    states,
+    language: lang,
+    locale: { language: lang, number_format: 'language', first_weekday: 'language', time_format: 'language' },
+    themes: { darkMode: dark },
+    callWS: callWS || (async () => { throw new Error('no ws in this test'); }),
+  });
+
+  // ---------- recorder statistics simulator ----------
+  // defs: { id: { kw: (msEpoch) => kW, wh: bool } }
+  window.makeStatsWS = (defs, { failWith } = {}) => async (msg) => {
+    window.wsCalls.push(JSON.parse(JSON.stringify(msg)));
+    await new Promise(r => setTimeout(r, 15));
+    if (failWith) throw { code: 'unknown_error', message: failWith };
+    if (msg.type === 'recorder/get_statistics_metadata') {
+      return msg.statistic_ids.filter(id => defs[id]).map(id => ({ statistic_id: id, has_sum: true, unit_of_measurement: defs[id].wh ? 'Wh' : 'kWh' }));
+    }
+    if (msg.type !== 'recorder/statistics_during_period') throw new Error('unexpected ' + msg.type);
+    const now = Date.now();
+    const start = Date.parse(msg.start_time), end = msg.end_time ? Date.parse(msg.end_time) : Infinity;
+    const out = {};
+    for (const id of msg.statistic_ids) {
+      const d = defs[id];
+      if (!d) continue;
+      const toUnit = (kwh) => (d.wh && !(msg.units && msg.units.energy === 'kWh')) ? kwh * 1000 : kwh;
+      const win = (ws) => d.kw(ws) * 5 / 60;
+      const rows = [];
+      if (msg.period === '5minute') {
+        for (let ws = Math.ceil(start / 3e5) * 3e5; ws < Math.min(end, now); ws += 3e5) {
+          if (ws + 3e5 + 10e3 <= now) rows.push({ start: ws, end: ws + 3e5, change: toUnit(win(ws)) });
+        }
+      } else {
+        const hours = [];
+        for (let hs = Math.ceil(start / 36e5) * 36e5; hs < Math.min(end, now); hs += 36e5) {
+          if (hs + 36e5 + 12e3 <= now) {
+            let c = 0;
+            for (let k = 0; k < 12; k++) c += win(hs + k * 3e5);
+            hours.push({ start: hs, end: hs + 36e5, change: c });
+          }
+        }
+        if (msg.period === 'hour') rows.push(...hours.map(h => ({ ...h, change: toUnit(h.change) })));
+        else {
+          const groups = new Map();
+          for (const h of hours) {
+            const dt = new Date(h.start);
+            const g = msg.period === 'month' ? new Date(dt.getFullYear(), dt.getMonth(), 1) : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+            const gEnd = msg.period === 'month' ? new Date(dt.getFullYear(), dt.getMonth() + 1, 1) : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1);
+            const k = g.getTime();
+            if (!groups.has(k)) groups.set(k, { start: k, end: gEnd.getTime(), change: 0 });
+            groups.get(k).change += h.change;
+          }
+          rows.push(...[...groups.values()].map(gr => ({ ...gr, change: toUnit(gr.change) })));
+        }
+      }
+      if (rows.length) out[id] = rows;
+    }
+    return out;
+  };
+  // Ground truth: kWh from `start` to the newest compiled 5-minute window (or `end`)
+  window.expectedKWh = (kw, start, end) => {
+    const now = Date.now();
+    let s = 0;
+    for (let ws = start; ws < (end || now); ws += 3e5) if (end || ws + 3e5 + 10e3 <= now) s += kw(ws) * 5 / 60;
+    return s;
+  };
+
+  window.mount = (id, config, hass, width = 420, caption = '') => {
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.id = 'slot-' + id;
+    slot.style.width = width + 'px';
+    if (caption) { const c = document.createElement('div'); c.className = 'cap'; c.textContent = caption; slot.appendChild(c); }
+    const card = document.createElement('energy-ring-card');
+    card.id = id;
+    card.setConfig(config);
+    card.hass = hass;
+    card.addEventListener('hass-more-info', (e) => window.events.push(e.detail.entityId));
+    slot.appendChild(card);
+    document.getElementById('grid').appendChild(slot);
+    return card;
+  };
+</script>
+<script src="../energy-ring-card.js"></script>
+</body>
+</html>

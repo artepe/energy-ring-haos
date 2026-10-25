@@ -1,0 +1,8 @@
+{
+  "name": "energy-ring-card-tests",
+  "private": true,
+  "description": "Browser test harness for energy-ring-card (Roboto font for HA-accurate text measurement).",
+  "devDependencies": {
+    "@fontsource/roboto": "^5.0.0"
+  }
+}
