@@ -101,6 +101,7 @@ python3 stats_test.py                    # statistics sums vs. ground truth (DST
 python3 intro_test.py                    # draw-in animation
 python3 misc_test.py                     # unit handling, labels
 python3 visual.py [dark]                 # screenshots to tests/out/
+xvfb-run -a python3 webkit_test.py       # same checks in WebKit, Safari's engine (apt: webkit2gtk-driver xvfb; pip: selenium)
 python3 preview.py                       # regenerates images/preview.png
 ```
 
