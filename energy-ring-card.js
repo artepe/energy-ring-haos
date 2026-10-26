@@ -1,5 +1,5 @@
 /*!
- * energy-ring-card v1.0.0 — Home Assistant Lovelace custom card
+ * energy-ring-card v1.1.0 — Home Assistant Lovelace custom card
  * https://github.com/artepe/energy-ring-haos · MIT
  * Kokonaiskulutus renkaan keskellä, kohteiden kulutukset renkaan sektoreina,
  * nimet ja arvot kaartuvat renkaan linjaa pitkin.
@@ -27,11 +27,14 @@
  *   center_label: / total_label:  # valinnaiset keskitekstit
  *   refresh_interval: 60          # s, tilastotilassa
  *   max_width: 440                # px, renkaan maksimileveys
+ *   grid_options:                 # sections-näkymä: kortti mukautuu annettuun ruutuun
+ *     columns: 6
+ *     rows: 3
  */
 (() => {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const TAG = 'energy-ring-card';
   if (customElements.get(TAG)) return;
 
@@ -52,7 +55,9 @@
   const LABEL_GAP = 10 / R_L1;                  // min angle between labels
   const Y_TOP = CY - 31, Y_VAL = CY + 17, Y_SUB = CY + 41;
   const NB = ' ';
-  const COMPACT_W = 250;         // px: below this the ring drops its labels (legend shows all)
+  const COMPACT_W = 280;         // px: below this the ring drops its labels (legend shows all)
+  const VB_FULL = '0 0 360 360';    // ring + curved labels
+  const VB_COMPACT = '42 42 276 276'; // ring only, fills small cells
 
   // Label guide lines. Top half: path runs clockwise, glyphs grow outwards.
   // Bottom half: path runs counter-clockwise (text stays upright), glyphs
@@ -239,11 +244,18 @@
   }
 
   const CSS = `
-    :host { display: block; --erc-ease: cubic-bezier(.22,.8,.24,1); }
-    ha-card { height: 100%; box-sizing: border-box; overflow: hidden; }
-    .wrap { padding: 8px 8px 12px; }
+    :host { display: block; height: 100%; --erc-ease: cubic-bezier(.22,.8,.24,1); }
+    ha-card { height: 100%; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; }
+    .wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center;
+      box-sizing: border-box; padding: 8px 8px 12px; }
     .wrap.has-header { padding-top: 0; }
-    svg { display: block; width: 100%; height: auto; margin: 0 auto; overflow: visible;
+    .title { flex: none; margin: 0; padding: 12px 16px 16px; color: var(--ha-card-header-color, var(--primary-text-color, #1f1f1f));
+      font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px);
+      font-weight: 400; letter-spacing: -0.012em; line-height: 48px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .compact .title { padding: 8px 12px 0; font-size: 14px; font-weight: 500; letter-spacing: 0; line-height: 20px; }
+    .compact .wrap { padding: 6px; }
+    .ring { position: relative; flex: 0 1 auto; min-height: 0; width: 100%; aspect-ratio: 1 / 1; margin: 0 auto; }
+    svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible;
       font-family: inherit; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
     .track { fill: none; stroke: var(--divider-color, rgba(127,127,127,.2)); stroke-width: ${SW}px; }
     .seg { fill: none; stroke-width: ${SW}px;
@@ -268,8 +280,9 @@
     .c-sub { font-size: 12.5px; text-anchor: middle; fill: var(--secondary-text-color, #6f6f6f); }
     .c-hit { fill: transparent; }
     .c-hit.link { cursor: pointer; }
-    .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 8px;
+    .legend { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 8px;
       font-size: 13px; line-height: 20px; }
+    .compact .legend { margin-top: 4px; gap: 2px 10px; font-size: 12px; line-height: 18px; }
     .legend:empty { display: none; }
     .li { display: inline-flex; align-items: center; gap: 6px; color: var(--secondary-text-color, #6f6f6f);
       transition: opacity .2s ease; outline: none; }
@@ -278,7 +291,7 @@
     .li .v { color: var(--primary-text-color, #1f1f1f); font-weight: 500; }
     .li.na .v { color: var(--secondary-text-color, #6f6f6f); font-weight: 400; font-style: italic; }
     .legend.dim .li:not(.on) { opacity: .45; }
-    .msg { margin-top: 6px; text-align: center; font-size: 12px; color: var(--error-color, #db4437); }
+    .msg { flex: none; margin-top: 6px; text-align: center; font-size: 12px; color: var(--error-color, #db4437); }
     .msg:empty { display: none; }
     @media (prefers-reduced-motion: reduce) { .seg, .lbl, .li { transition: none; } }
   `;
@@ -302,13 +315,16 @@
       this._introDone = false;
       this._compact = false;
       this._onVis = () => { if (!document.hidden) this._maybeRefetch(); };
-      this._ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => {
-        const w = entries[entries.length - 1].contentRect.width;
-        const compact = w > 0 && w < COMPACT_W;
-        if (compact !== this._compact) {
-          this._compact = compact;
-          this._render(true);
-        }
+      this._ringPx = 0;
+      this._legendOff = false;
+      // Re-render on the next frame: rendering inside the observer callback
+      // resizes what it observes ("ResizeObserver loop" warning).
+      this._ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+        if (this._roFrame) return;
+        this._roFrame = requestAnimationFrame(() => {
+          this._roFrame = 0;
+          this._onResize();
+        });
       });
     }
 
@@ -384,7 +400,7 @@
 
     connectedCallback() {
       document.addEventListener('visibilitychange', this._onVis);
-      if (this._ro && this._svg) this._ro.observe(this._svg);
+      this._observe();
       this._startTimer();
       if (this._config && this._hass) {
         // Cards usually get config + hass before they are attached: play the
@@ -412,7 +428,45 @@
     }
 
     getGridOptions() {
-      return { columns: 12, rows: 'auto', min_columns: 6 };
+      return { columns: 12, rows: 'auto', min_columns: 3, min_rows: 2 };
+    }
+
+    _observe() {
+      if (!this._ro || !this._ringEl || !this.isConnected) return;
+      this._ro.disconnect();
+      this._ro.observe(this._ringEl);
+      this._ro.observe(this);
+    }
+
+    _onResize() {
+      const ring = this._ringEl;
+      if (!ring || !this._config) return;
+      const rw = ring.clientWidth, rh = ring.clientHeight;
+      if (!rw) return;
+      let changed = false;
+      // A fixed cell height (sections grid rows) too low for ring + legend:
+      // the legend steps aside and the ring keeps the space. Decided per card
+      // size, so hiding the legend cannot flip the decision back.
+      const key = `${this.clientWidth}x${this.clientHeight}`;
+      if (this._legendOff && key !== this._legendKey) {
+        this._legendOff = false;
+        changed = true;
+      } else if (!this._legendOff && this._config.legend === 'auto' && this._legend.childElementCount && rh < rw * 0.85) {
+        this._legendOff = true;
+        this._legendKey = key;
+        changed = true;
+      }
+      const px = Math.min(rw, rh);
+      const compact = px < COMPACT_W;
+      if (compact !== this._compact) {
+        this._compact = compact;
+        changed = true;
+      }
+      if (Math.abs(px - this._ringPx) >= 2) {
+        this._ringPx = px;
+        changed = true;
+      }
+      if (changed) this._render(true);
     }
 
     /* ---------- DOM ---------- */
@@ -430,8 +484,10 @@
       this.shadowRoot.innerHTML = `
         <style>${CSS}</style>
         <ha-card>
+          ${cfg.title ? '<div class="title"></div>' : ''}
           <div class="wrap">
-            <svg viewBox="0 0 360 360" role="img" style="max-width:${maxW}">
+            <div class="ring" style="max-width:${maxW}">
+            <svg viewBox="${VB_FULL}" role="img">
               <defs>${paths}</defs>
               <circle class="track" cx="${CX}" cy="${CY}" r="${R}"/>
               <g class="segs" transform="rotate(-90 ${CX} ${CY})"></g>
@@ -445,6 +501,7 @@
                 <circle class="c-hit" cx="${CX}" cy="${CY}" r="${R_IN - 10}"/>
               </g>
             </svg>
+            </div>
             <div class="legend"></div>
             <div class="msg"></div>
           </div>
@@ -452,13 +509,14 @@
       const $ = (s) => this.shadowRoot.querySelector(s);
       this._card = $('ha-card');
       if (cfg.title) {
-        this._card.header = cfg.title;
-        this._card.setAttribute('header', cfg.title);
+        $('.title').textContent = String(cfg.title);
         $('.wrap').classList.add('has-header');
       }
-      if (this._ro) this._ro.disconnect();
+      this._wrapEl = $('.wrap');
+      this._ringEl = $('.ring');
       this._svg = $('svg');
-      if (this._ro && this.isConnected) this._ro.observe(this._svg);
+      this._legendOff = false;
+      this._observe();
       this._segG = $('.segs');
       this._hitG = $('.hits');
       this._lblG = $('.lbls');
@@ -809,6 +867,8 @@
       this._m = m;
       this._fam = this._font();
       this._svg.classList.toggle('loading', m.loading);
+      this._svg.setAttribute('viewBox', this._compact ? VB_COMPACT : VB_FULL);
+      this._card.classList.toggle('compact', this._compact);
       this._svg.setAttribute('aria-label', m.aria);
       this._drawRing(m);
       this._drawLabels(m);
@@ -994,7 +1054,7 @@
       const mode = this._config.legend;
       let list = [];
       if (mode === true) list = m.legendAll;
-      else if (mode === 'auto') list = m.legendAll.filter((i) => !m.labeled.has(i.key));
+      else if (mode === 'auto') list = this._legendOff ? [] : m.legendAll.filter((i) => !m.labeled.has(i.key));
       this._legend.replaceChildren(...list.map((i) => {
         const d = document.createElement('div');
         d.className = `li${i.available ? '' : ' na'}`;
@@ -1035,39 +1095,52 @@
 
     _drawCenter(it) {
       const m = this._m, t = this._t(), fam = this._fam;
+      // px per SVG unit: small text is sized up so it never renders below ~10.5 px
+      const k = this._ringPx ? Math.min(1.5, Math.max(0.4, this._ringPx / (this._compact ? 276 : 360))) : 1;
+      const fsTop = Math.max(11.5, 10.5 / k), fsName = Math.max(13.5, 12 / k), fsSub = Math.max(12.5, 11 / k);
+      const yTop = Y_TOP - (fsTop - 11.5) * 0.4, yName = Y_TOP - (fsName - 13.5) * 0.4;
+      this._cSub.setAttribute('y', r2(Y_SUB + (fsSub - 12.5) * 0.6));
+      this._cSub.style.fontSize = `${r2(fsSub)}px`;
       let num, unit, sub;
       if (it) {
-        const nm = fitText(it.name, 168 - DOT_SPACE, 13.5, 500, fam);
-        const full = textW(nm, 13.5, 500, fam) + DOT_SPACE;
+        const ds = DOT_SPACE * (fsName / 13.5);
+        const nm = fitText(it.name, 168 - ds, fsName, 500, fam);
+        const full = textW(nm, fsName, 500, fam) + ds;
         this._cTop.classList.add('named');
+        this._cTop.style.fontSize = `${r2(fsName)}px`;
         this._cTop.textContent = nm;
-        this._cTop.setAttribute('x', r2(CX + DOT_SPACE / 2));
-        this._cDot.setAttribute('cx', r2(CX - full / 2 + DOT_R));
-        this._cDot.setAttribute('cy', r2(Y_TOP - BL * 13.5));
+        this._cTop.setAttribute('x', r2(CX + ds / 2));
+        this._cTop.setAttribute('y', r2(yName));
+        this._cDot.setAttribute('r', r2(DOT_R * (fsName / 13.5)));
+        this._cDot.setAttribute('cx', r2(CX - full / 2 + DOT_R * (fsName / 13.5)));
+        this._cDot.setAttribute('cy', r2(yName - BL * fsName));
         this._cDot.style.fill = it.swatch;
         this._cDot.style.display = '';
         num = it.fmtd.num;
         unit = it.fmtd.unit;
         const of = m.kind === 'power' ? t.ofPower : m.kind === 'energy' ? t.ofEnergy : t.ofTotal;
-        sub = it.available ? `${it.pctStr} ${of}` : it.display;
+        sub = !it.available ? it.display : this._compact ? it.pctStr : `${it.pctStr} ${of}`;
       } else {
         this._cTop.classList.remove('named');
-        this._cTop.textContent = fitText(m.centerTop.toLocaleUpperCase(this._lang()), 172, 11.5, 500, fam, 1.15);
+        this._cTop.style.fontSize = `${r2(fsTop)}px`;
+        this._cTop.textContent = fitText(m.centerTop.toLocaleUpperCase(this._lang()), 172, fsTop, 500, fam, 0.1 * fsTop);
         this._cTop.setAttribute('x', CX);
+        this._cTop.setAttribute('y', r2(yTop));
         this._cDot.style.display = 'none';
         num = m.center.num;
         unit = m.center.unit;
-        sub = m.centerSub;
+        // Small ring: the total needs no caption unless one was configured.
+        sub = this._compact && !m.loading && this._config.total_label == null ? '' : m.centerSub;
       }
       const nW = textW(num, 48, 400, fam);
       const uW = unit ? 5 + textW(unit, 19, 400, fam) : 0;
-      const k = Math.min(1, 196 / (nW + uW));
+      const fit = Math.min(1, 196 / (nW + uW));
       this._cNum.textContent = num;
-      this._cNum.style.fontSize = `${r2(48 * k)}px`;
+      this._cNum.style.fontSize = `${r2(48 * fit)}px`;
       this._cUnit.textContent = unit;
-      this._cUnit.style.fontSize = `${r2(19 * k)}px`;
-      this._cUnit.setAttribute('dx', unit ? r2(5 * k) : 0);
-      this._cSub.textContent = fitText(sub || '', 176, 12.5, 400, fam);
+      this._cUnit.style.fontSize = `${r2(19 * fit)}px`;
+      this._cUnit.setAttribute('dx', unit ? r2(5 * fit) : 0);
+      this._cSub.textContent = fitText(sub || '', 176, fsSub, 400, fam);
     }
 
     _openKey(key) {

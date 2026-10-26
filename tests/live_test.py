@@ -136,7 +136,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(300)
     cm2 = page.evaluate("() => ({ labeled: [...cardC._m.labeled], compact: cardC._compact })")
     check("compact mode turns off when widened", not cm2["compact"] and len(cm2["labeled"]) >= 3, str(cm2))
-    check("grid options", page.evaluate("() => JSON.stringify(cardC.getGridOptions())") == '{"columns":12,"rows":"auto","min_columns":6}')
+    check("grid options", page.evaluate("() => JSON.stringify(cardC.getGridOptions())") == '{"columns":12,"rows":"auto","min_columns":3,"min_rows":2}')
     check("no page errors", not errs, str(errs))
     ctx.close()
 

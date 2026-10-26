@@ -78,6 +78,18 @@ entities:
 
 Units W/kW/MW and Wh/kWh/MWh are converted and scaled automatically. Other units are shown as they are.
 
+## Card size (sections view)
+
+The card fills the cell it is given, like any other card:
+
+```yaml
+grid_options:
+  columns: 6
+  rows: 3
+```
+
+When the ring is smaller than about 280 px, it switches to a compact ring without the curved labels. Hover or tap a segment to see its name, value and share in the centre. With `legend: auto`, the legend is hidden when the cell is too short for both ring and legend. Set `legend: true` to keep it anyway.
+
 ## Statistics mode
 
 With `period` set, the card sums the `change` of each sensor from the recorder: completed days in one request, today's completed hours, and the 5-minute statistics of the running hour. The numbers are at most a few minutes behind and refresh every `refresh_interval` seconds.
@@ -101,6 +113,7 @@ python3 stats_test.py                    # statistics sums vs. ground truth (DST
 python3 intro_test.py                    # draw-in animation
 python3 misc_test.py                     # unit handling, labels
 python3 visual.py [dark]                 # screenshots to tests/out/
+python3 size_test.py [dark]              # fixed sections-grid cells (grid_options)
 xvfb-run -a python3 webkit_test.py       # same checks in WebKit, Safari's engine (apt: webkit2gtk-driver xvfb; pip: selenium)
 python3 preview.py                       # regenerates images/preview.png
 ```
