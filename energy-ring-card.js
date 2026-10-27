@@ -1,40 +1,40 @@
 /*!
- * energy-ring-card v1.1.0 — Home Assistant Lovelace custom card
+ * energy-ring-card v1.1.1 — Home Assistant Lovelace custom card
  * https://github.com/artepe/energy-ring-haos · MIT
- * Kokonaiskulutus renkaan keskellä, kohteiden kulutukset renkaan sektoreina,
- * nimet ja arvot kaartuvat renkaan linjaa pitkin.
+ * Total consumption in the centre of a ring, each consumer as a segment,
+ * with names and values written along the ring.
  *
- * Asennus: kopioi tiedosto /config/www/energy-ring-card.js ja lisää resurssi
- *   URL: /local/energy-ring-card.js?v=1.0.0   tyyppi: JavaScript-moduuli
+ * Install: copy this file to /config/www/energy-ring-card.js and add a resource
+ *   URL: /local/energy-ring-card.js?v=1.1.1   type: JavaScript module
  *
- * Konfiguraatio (YAML):
+ * Configuration (YAML):
  *   type: custom:energy-ring-card
- *   title: Sähkö                  # valinnainen otsikko
- *   period: live                  # live = entiteettien tila (W/kW tai kWh)
- *                                 # today | yesterday | week | month | year = HA:n
- *                                 # pitkäaikaistilastot (energia-anturit, total_increasing)
- *   total_entity: sensor.koko_talo   # valinnainen, keskelle + "Muu"-sektori erotukselle
- *   entities:                     # 9.+ kohde lasketaan Muu-sektoriin, ellei sille anna omaa väriä
- *     - entity: sensor.vilp_teho
- *       name: Lämpöpumppu
- *       color: orange               # valinnainen (CSS-väri tai HA-värinimi)
- *     - sensor.sauna_teho           # lyhyt muoto
- *   show_other: true              # Muu = total_entity − kohteiden summa
- *   other_name: Muu
- *   sort: false                   # true = suurin ensin
- *   legend: auto                  # auto = vain ne, joiden teksti ei mahdu kehälle | true | false
- *   decimals:                     # valinnainen, pakota desimaalit
- *   center_label: / total_label:  # valinnaiset keskitekstit
- *   refresh_interval: 60          # s, tilastotilassa
- *   max_width: 440                # px, renkaan maksimileveys
- *   grid_options:                 # sections-näkymä: kortti mukautuu annettuun ruutuun
+ *   title: Electricity            # optional header
+ *   period: live                  # live = current entity states (W/kW or kWh)
+ *                                 # today | yesterday | week | month | year = Home Assistant
+ *                                 # long-term statistics (energy sensors, total_increasing)
+ *   total_entity: sensor.house_power  # optional: centre value, remainder shown as "Other"
+ *   entities:                     # a 9th+ entity without its own color is counted in "Other"
+ *     - entity: sensor.heat_pump_power
+ *       name: Heat pump
+ *       color: orange               # optional (CSS color or Home Assistant color name)
+ *     - sensor.sauna_power          # short form
+ *   show_other: true              # Other = total_entity minus the sum of entities
+ *   other_name: Other             # default follows the Home Assistant language
+ *   sort: false                   # true = largest first
+ *   legend: auto                  # auto = only items whose label does not fit on the ring | true | false
+ *   decimals:                     # optional, force the number of decimals
+ *   center_label: / total_label:  # optional centre texts
+ *   refresh_interval: 60          # seconds, statistics mode
+ *   max_width: 440                # px, maximum ring width
+ *   grid_options:                 # sections view: the card fits the cell it is given
  *     columns: 6
  *     rows: 3
  */
 (() => {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const TAG = 'energy-ring-card';
   if (customElements.get(TAG)) return;
 
@@ -342,23 +342,23 @@
     }
 
     setConfig(config) {
-      if (!config || typeof config !== 'object') throw new Error('energy-ring-card: virheellinen konfiguraatio');
+      if (!config || typeof config !== 'object') throw new Error('energy-ring-card: invalid configuration');
       if (!Array.isArray(config.entities) || !config.entities.length) {
-        throw new Error('energy-ring-card: lisää vähintään yksi entiteetti (entities:)');
+        throw new Error('energy-ring-card: add at least one entity (entities:)');
       }
       const entities = config.entities.map((e, i) => {
         const o = typeof e === 'string' ? { entity: e } : { ...(e || {}) };
         if (typeof o.entity !== 'string' || !o.entity.includes('.')) {
-          throw new Error(`energy-ring-card: entities[${i}].entity puuttuu tai on virheellinen`);
+          throw new Error(`energy-ring-card: entities[${i}].entity is missing or invalid`);
         }
         return o;
       });
       const period = config.period && config.period !== 'live' ? String(config.period) : null;
       if (period && !PERIODS.includes(period)) {
-        throw new Error(`energy-ring-card: period: ${['live', ...PERIODS].join(' | ')}`);
+        throw new Error(`energy-ring-card: period must be one of ${['live', ...PERIODS].join(' | ')}`);
       }
       if (config.total_entity != null && (typeof config.total_entity !== 'string' || !config.total_entity.includes('.'))) {
-        throw new Error('energy-ring-card: total_entity on virheellinen');
+        throw new Error('energy-ring-card: total_entity is invalid');
       }
       let legend = config.legend === undefined ? 'auto' : config.legend;
       if (legend === 'all' || legend === 'on') legend = true;
@@ -648,7 +648,7 @@
         this._statsErr = null;
       } catch (err) {
         if (cfgRef !== this._config) return;
-        console.error('[energy-ring-card] tilastojen haku epäonnistui', err);
+        console.error('[energy-ring-card] failed to load statistics', err);
         this._statsErr = (err && (err.message || err.code)) || String(err);
         if (this._stats) this._stats.at = Date.now();
       } finally {
@@ -666,7 +666,7 @@
         const ok = new Set((res || []).filter((m) => m && m.has_sum !== false).map((m) => m.statistic_id));
         const missing = new Set(ids.filter((id) => !ok.has(id)));
         if (missing.size) {
-          console.warn('[energy-ring-card] Näillä entiteeteillä ei ole energiatilastoja (state_class total/total_increasing tarvitaan):', [...missing].join(', '));
+          console.warn('[energy-ring-card] These entities have no energy statistics (state_class total or total_increasing is required):', [...missing].join(', '));
         }
         return { missing };
       } catch (e) {
@@ -785,7 +785,7 @@
       const unitOther = kind === 'other' ? ((tot && tot.unit) || (items.find((i) => i.unit) || {}).unit || '') : '';
       const kinds = new Set(items.filter((i) => i.available).map((i) => i.kind));
       if (tot && tot.kind) kinds.add(tot.kind);
-      if (kinds.size > 1) this._warn('mix', 'energy-ring-card: entiteeteillä on eri suureita (teho W vs. energia kWh) — osuudet eivät ole vertailukelpoisia.');
+      if (kinds.size > 1) this._warn('mix', 'energy-ring-card: the entities mix power (W) and energy (kWh), so their shares are not comparable.');
 
       const vis = items.filter((i) => !i.folded);
       const fold = items.filter((i) => i.folded);
@@ -1159,7 +1159,7 @@
   window.customCards.push({
     type: TAG,
     name: 'Energy Ring Card',
-    description: 'Kokonaiskulutus renkaan keskellä, kohteiden kulutukset renkaan kaarella.',
+    description: 'Total consumption in the centre of a ring, each consumer as a segment along it.',
     preview: true,
   });
   console.info(

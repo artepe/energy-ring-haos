@@ -1,15 +1,17 @@
 import pathlib
 from playwright.sync_api import sync_playwright
 from PIL import Image
+# Regenerates images/preview.png (English locale, light + dark).
 HERE = pathlib.Path(__file__).parent; OUT = HERE / "out"; URL = (HERE / "index.html").as_uri()
+OUT.mkdir(exist_ok=True)
 LIVE = r"""() => {
   const W = (id, w, n) => st(id, w, 'W', n, { device_class: 'power' });
-  const s = { 'sensor.koko': st('sensor.koko', 7.48, 'kW', 'Koko talo'), 'sensor.vilp': W('sensor.vilp', 2850, 'VILP'),
-    'sensor.tesla': W('sensor.tesla', 3320, 'Tesla'), 'sensor.keittio': W('sensor.keittio', 410, 'Keittiö'),
-    'sensor.valot': W('sensor.valot', 160, 'Valaistus'), 'sensor.iv': W('sensor.iv', 70, 'IV-kone') };
-  mount('P', { type: 'custom:energy-ring-card', title: 'Sähkö nyt', total_entity: 'sensor.koko',
-    entities: [{ entity: 'sensor.vilp', name: 'Lämpöpumppu' }, { entity: 'sensor.tesla', name: 'Tesla' }, 'sensor.keittio', 'sensor.valot', 'sensor.iv'] },
-    makeHass({ states: s }), 440);
+  const s = { 'sensor.house': st('sensor.house', 7.48, 'kW', 'House'), 'sensor.hp': W('sensor.hp', 2850, 'Heat pump'),
+    'sensor.ev': W('sensor.ev', 3320, 'EV charger'), 'sensor.kitchen': W('sensor.kitchen', 410, 'Kitchen'),
+    'sensor.lights': W('sensor.lights', 160, 'Lighting'), 'sensor.vent': W('sensor.vent', 70, 'Ventilation') };
+  mount('P', { type: 'custom:energy-ring-card', title: 'Power now', total_entity: 'sensor.house',
+    entities: ['sensor.hp', 'sensor.ev', 'sensor.kitchen', 'sensor.lights', 'sensor.vent'] },
+    makeHass({ states: s, lang: 'en' }), 440);
 }"""
 STATS = r"""() => {
   document.documentElement.classList.add('dark');
@@ -17,10 +19,10 @@ STATS = r"""() => {
     'sensor.e': (t) => ((Math.floor(t / 36e5) % 24) < 4 ? 3.6 : 0), 'sensor.s': (t) => ((Math.floor(t / 36e5) % 24) === 7 ? 5.5 : 0),
     'sensor.k': (t) => 0.3 };
   const defs = Object.fromEntries(Object.entries(kwf).map(([k, f]) => [k, { kw: f }]));
-  const names = { 'sensor.t': 'Koko talo', 'sensor.v': 'Lämpöpumppu', 'sensor.e': 'Tesla', 'sensor.s': 'Sauna', 'sensor.k': 'Kodinkoneet' };
+  const names = { 'sensor.t': 'House', 'sensor.v': 'Heat pump', 'sensor.e': 'EV charger', 'sensor.s': 'Sauna', 'sensor.k': 'Appliances' };
   const s = Object.fromEntries(Object.keys(kwf).map(k => [k, st(k, 1, 'kWh', names[k])]));
-  mount('Q', { type: 'custom:energy-ring-card', title: 'Kulutus tänään', period: 'today', total_entity: 'sensor.t',
-    entities: ['sensor.v', 'sensor.e', 'sensor.s', 'sensor.k'] }, makeHass({ states: s, dark: true, callWS: makeStatsWS(defs) }), 440);
+  mount('Q', { type: 'custom:energy-ring-card', title: 'Energy today', period: 'today', total_entity: 'sensor.t',
+    entities: ['sensor.v', 'sensor.e', 'sensor.s', 'sensor.k'] }, makeHass({ states: s, dark: true, lang: 'en', callWS: makeStatsWS(defs) }), 440);
 }"""
 shots = []
 with sync_playwright() as p:
@@ -37,4 +39,4 @@ pad = 40; w = sum(i.width for i in ims) + pad * 3; h = max(i.height for i in ims
 canvas = Image.new("RGB", (w, h), (236, 236, 233)); x = pad
 for i in ims:
     canvas.paste(i, (x, pad), i); x += i.width + pad
-OUT.mkdir(exist_ok=True); canvas.save(HERE.parent / "images" / "preview.png"); print(canvas.size)
+canvas.save(HERE.parent / "images" / "preview.png"); print(canvas.size)

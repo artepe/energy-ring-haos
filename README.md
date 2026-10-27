@@ -8,7 +8,7 @@ A Home Assistant Lovelace card that shows the total consumption in the middle of
 - Optional `total_entity`: the untracked remainder is shown as an **Other** segment.
 - Labels are laid out automatically. Ones that don't fit on the ring move to a legend under it.
 - Hover a segment to see its value and share in the centre. A click opens the more-info dialog. Works with the keyboard too.
-- Light and dark theme, colour-blind-safe default palette, Finnish / Swedish / English texts.
+- Light and dark theme and a colour-blind-safe default palette. Card texts follow the Home Assistant language (English, Finnish, Swedish).
 
 Requires Home Assistant 2024.1 or newer.
 
@@ -22,7 +22,7 @@ Requires Home Assistant 2024.1 or newer.
 **Manual**
 
 1. Copy `energy-ring-card.js` to `/config/www/`.
-2. Settings → Dashboards → ⋮ → **Resources** → Add resource: `/local/energy-ring-card.js?v=1.0.0`, type **JavaScript module**. (Resources is visible when *Advanced mode* is on in your user profile.)
+2. Settings → Dashboards → ⋮ → **Resources** → Add resource: `/local/energy-ring-card.js?v=1.1.1`, type **JavaScript module**. (Resources is visible when *Advanced mode* is on in your user profile.)
 3. Hard-refresh the browser.
 
 ## Examples
@@ -31,11 +31,11 @@ Power right now:
 
 ```yaml
 type: custom:energy-ring-card
-title: Sähkö nyt
+title: Power now
 total_entity: sensor.shellypro3em_total_active_power
 entities:
   - entity: sensor.heat_pump_power
-    name: Lämpöpumppu
+    name: Heat pump
   - entity: sensor.tesla_wall_connector_power
     name: Tesla
   - entity: sensor.sauna_power
@@ -46,12 +46,12 @@ Energy today, read from the recorder statistics:
 
 ```yaml
 type: custom:energy-ring-card
-title: Kulutus tänään
+title: Energy today
 period: today            # today | yesterday | week | month | year
 total_entity: sensor.shellypro3em_total_active_energy
 entities:
   - entity: sensor.heat_pump_energy
-    name: Lämpöpumppu
+    name: Heat pump
   - entity: sensor.tesla_wall_connector_energy
     name: Tesla
 ```
@@ -65,12 +65,12 @@ entities:
 | `period` | `live` | `live` = current state of the entities. `today`, `yesterday`, `week`, `month`, `year` = sum from long-term statistics. |
 | `title` | – | Card header. |
 | `show_other` | `true` | `false` leaves the untracked part of the ring empty instead of drawing *Other*. |
-| `other_name` | `Muu` / `Other` | Name of the remainder segment. |
+| `other_name` | *Other*, in the Home Assistant language | Name of the remainder segment. |
 | `sort` | `false` | `true` = largest first, clockwise from the top. Default keeps the order of `entities`. |
 | `legend` | `auto` | `auto` = only items whose label doesn't fit on the ring, `true` = all, `false` = none. |
 | `decimals` | automatic | Force the number of decimals. |
-| `center_label` | period / "Now" | Small text above the centre value. |
-| `total_label` | "Total power" / "Total consumption" | Text below the centre value. |
+| `center_label` | period or *Now* | Small text above the centre value. |
+| `total_label` | *Total power* or *Total consumption* | Text below the centre value. |
 | `refresh_interval` | `60` | Seconds between statistics refreshes (minimum 15). |
 | `max_width` | `440` | Maximum width of the ring in pixels. |
 
@@ -95,10 +95,6 @@ When the ring is smaller than about 280 px, it switches to a compact ring withou
 With `period` set, the card sums the `change` of each sensor from the recorder: completed days in one request, today's completed hours, and the 5-minute statistics of the running hour. The numbers are at most a few minutes behind and refresh every `refresh_interval` seconds.
 
 The sensors need `state_class: total` or `total_increasing` (the same sensors the Energy dashboard uses). Values are converted to kWh. A sensor without statistics is flagged in the legend and under the ring.
-
-## Suomeksi
-
-Kortti näyttää kokonaiskulutuksen renkaan keskellä ja kohteiden kulutukset renkaan sektoreina. Nimet, arvot ja osuudet kaartuvat renkaan mukaan. Asennus HACSilla (Custom repositories, tyyppi *Dashboard*) tai kopioimalla `energy-ring-card.js` kansioon `/config/www/` ja lisäämällä resurssi `/local/energy-ring-card.js?v=1.0.0` (JavaScript-moduuli). Esimerkit ja asetukset yllä.
 
 ## Development
 
